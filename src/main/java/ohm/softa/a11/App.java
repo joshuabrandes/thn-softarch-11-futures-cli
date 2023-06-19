@@ -3,12 +3,15 @@ package ohm.softa.a11;
 import ohm.softa.a11.openmensa.OpenMensaAPI;
 import ohm.softa.a11.openmensa.OpenMensaAPIService;
 import ohm.softa.a11.openmensa.model.Canteen;
+import ohm.softa.a11.openmensa.model.Meal;
 import ohm.softa.a11.openmensa.model.PageInfo;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 /**
@@ -24,7 +27,7 @@ public class App {
 	private static final Calendar currentDate = Calendar.getInstance();
 	private static int currentCanteenId = -1;
 
-	public static void main(String[] args) {
+	public static void main(String[] args) throws ExecutionException, InterruptedException {
 		MenuSelection selection;
 		/* loop while true to get back to the menu every time an action was performed */
 		do {
@@ -49,7 +52,7 @@ public class App {
 		} while (true);
 	}
 
-	private static void printCanteens() {
+	private static void printCanteens() throws ExecutionException, InterruptedException {
 		System.out.print("Fetching canteens [");
 		/* TODO fetch all canteens and print them to STDOUT
 		 * at first get a page without an index to be able to extract the required pagination information
@@ -58,7 +61,7 @@ public class App {
 		openMensaAPI.getCanteens()
 			.thenApply(response -> {
 				var pageInfo = PageInfo.extractFromResponse(response);
-				List canteens;
+				List<Canteen> canteens;
 
 				if (response.body() == null) {
 					canteens = Collections.emptyList();
@@ -72,18 +75,55 @@ public class App {
 					if (future == null) {
 						future = openMensaAPI.getCanteens(i);
 					} else {
-						future = future.thenCombine(openMensaAPI.getCanteens(i)), (cantee, canteens2) -> {
-							cantee
-						};
+						future = future.thenCombine(openMensaAPI.getCanteens(i), (canteens1, canteens2) -> {
+							canteens1.addAll(canteens2);
+							return canteens1;
+						});
 					}
 				}
+
+				try {
+					canteens.addAll(future.get());
+				} catch (InterruptedException | ExecutionException e) {
+					e.printStackTrace();
+				}
+
+				return canteens.stream()
+					.sorted(Comparator.comparing(Canteen::getId))
+					.collect(Collectors.toList());
 			})
+			.thenAccept(canteens -> canteens.forEach(System.out::println))
+			.get();
 	}
 
-	private static void printMeals() {
+	private static void printMeals() throws ExecutionException, InterruptedException {
 		/* TODO fetch all meals for the currently selected canteen
 		 * to avoid errors retrieve at first the state of the canteen and check if the canteen is opened at the selected day
 		 * don't forget to check if a canteen was selected previously! */
+		if (currentCanteenId < 0) {
+			System.out.println("No canteen selected");
+			return;
+		}
+
+		final var dateString = dateFormat.format(currentDate.getTime());
+
+		openMensaAPI.getCanteenState(currentCanteenId, dateString)
+			.thenApply(state -> {
+				if (state != null && !state.isClosed()) {
+					try {
+						return openMensaAPI
+							.getMeals(currentCanteenId, dateString)
+							.get();
+					} catch (InterruptedException | ExecutionException e) {
+						e.printStackTrace();
+					}
+				} else {
+					System.out.println("Canteen is closed");
+				}
+				return new LinkedList<Meal>();
+			})
+			.thenAccept(meals -> meals.forEach(System.out::println))
+			.get();
 	}
 
 	/**
