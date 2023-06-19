@@ -2,13 +2,13 @@ package ohm.softa.a11;
 
 import ohm.softa.a11.openmensa.OpenMensaAPI;
 import ohm.softa.a11.openmensa.OpenMensaAPIService;
+import ohm.softa.a11.openmensa.model.Canteen;
+import ohm.softa.a11.openmensa.model.PageInfo;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.Locale;
-import java.util.Scanner;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.IntStream;
 
 /**
@@ -55,6 +55,29 @@ public class App {
 		 * at first get a page without an index to be able to extract the required pagination information
 		 * afterwards you can iterate the remaining pages
 		 * keep in mind that you should await the process as the user has to select canteen with a specific id */
+		openMensaAPI.getCanteens()
+			.thenApply(response -> {
+				var pageInfo = PageInfo.extractFromResponse(response);
+				List canteens;
+
+				if (response.body() == null) {
+					canteens = Collections.emptyList();
+				} else {
+					canteens = response.body();
+				}
+
+				CompletableFuture<List<Canteen>> future = null;
+
+				for (int i = 2; i < pageInfo.getTotalCountOfPages(); i++) {
+					if (future == null) {
+						future = openMensaAPI.getCanteens(i);
+					} else {
+						future = future.thenCombine(openMensaAPI.getCanteens(i)), (cantee, canteens2) -> {
+							cantee
+						};
+					}
+				}
+			})
 	}
 
 	private static void printMeals() {
